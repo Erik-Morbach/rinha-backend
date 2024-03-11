@@ -1,38 +1,43 @@
 package handlers
 
 import (
-	"fmt"
 	"net/http"
-	"strconv"
+	"rinha/backend/utils"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
 )
 
-func (ch *ClientHandler) GetSummary(ctx *gin.Context) {
-	parsedValue, err := strconv.ParseInt(ctx.Param("id"), 10, 32)
+func (ch *ClientHandler) GetSummary(ctx *fiber.Ctx) error {
+	clientId, err := GetIdFromRequest(ctx)
 	if err != nil {
-		ctx.String(http.StatusBadRequest, "Id Error")
-		return
+		return utils.NewError(utils.ValidationError, "Requested Id cannot be converted to an integer")
 	}
-	clientId := int(parsedValue)
 
-	balance, err := ch.BalanceRepository.FindByClient(clientId)
+	exists, err := ch.ClientRepository.Exist(clientId)
 	if err != nil {
-		fmt.Println(err)
-		return
+		return err
+	}
+	if !exists {
+		return utils.NewError(utils.UserNotFoundError, "User not found")
 	}
 
 	client, err := ch.ClientRepository.FindById(clientId)
 	if err != nil {
-		fmt.Println(err)
-		return
+		return err
+		//return ctx.Status(http.StatusUnprocessableEntity).SendString(err.Error())
+	}
+
+	balance, err := ch.BalanceRepository.FindByClient(clientId)
+	if err != nil {
+		return err
+		//return ctx.Status(http.StatusUnprocessableEntity).SendString(err.Error())
 	}
 
 	transactions, err := ch.TransactionRepository.GetLast(clientId, 10)
 	if err != nil {
-		fmt.Println(err)
-		return
+		return err
+		//return ctx.Status(http.StatusUnprocessableEntity).SendString(err.Error())
 	}
 
 	timeStampFormated := time.Now().Format(time.RFC3339)
@@ -46,5 +51,5 @@ func (ch *ClientHandler) GetSummary(ctx *gin.Context) {
 		Balance:          balanceSummary,
 		LastTransactions: transactions,
 	}
-	ctx.JSON(http.StatusOK, clientSummary)
+	return ctx.Status(http.StatusOK).JSON(clientSummary)
 }

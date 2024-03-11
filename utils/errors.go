@@ -1,19 +1,33 @@
-package utils;
+package utils
 
-import (
-	"fmt"
-)
-const (
-	DbError = iota
-	InsuficientLimitError = iota
-)
+import "fmt"
 
-type QueryError struct {
+type BaseError struct {
 	Code int
-	Msg string
-	Err error
+	Msg  string
 }
 
-func (qe QueryError) Error() string{
-	return fmt.Sprintf("%s\nErrorCode:%d\nMsg:%s", qe.Err.Error(), qe.Code, qe.Msg)
+func (b BaseError) Error() string {
+	return fmt.Sprint(b.Code) + " - " + b.Msg
+}
+
+const (
+	DbError           = iota
+	EmptyResultError  = iota
+	RequestError      = iota
+	ValidationError   = iota
+	PaymentError      = iota
+	UserNotFoundError = iota
+)
+
+// Just to simplify the error creation
+func NewError(code int, msg string) error {
+	return BaseError{Code: code, Msg: msg}
+}
+
+func VerifyErrorCode(err error) int {
+	if v, ok := err.(BaseError); ok{
+		return v.Code
+	}
+	return -1
 }

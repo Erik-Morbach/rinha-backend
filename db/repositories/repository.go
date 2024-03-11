@@ -1,6 +1,6 @@
 package repositories
 
-import "github.com/jackc/pgx/v5"
+import "github.com/jackc/pgx/v5/pgxpool"
 
 type Repositories struct {
 	ClientRepository      *ClientRepository
@@ -8,10 +8,10 @@ type Repositories struct {
 	BalanceRepository     *BalanceRepository
 }
 
-func NewRepositories(conn *pgx.Conn) *Repositories {
+func NewRepositories(dbPool *pgxpool.Pool) *Repositories {
 	return &Repositories{
-		ClientRepository:      NewClientRepository(conn),
-		TransactionRepository: NewTransactionRepository(conn),
-		BalanceRepository:     NewBalanceRepository(conn),
+		ClientRepository:      NewClientRepository(dbPool),
+		TransactionRepository: NewTransactionRepository(dbPool),
+		BalanceRepository:     NewBalanceRepository(dbPool),
 	}
 }

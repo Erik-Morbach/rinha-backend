@@ -1,67 +1,82 @@
 package repositories
 
 import (
-	"context"
-	"fmt"
-
 	"rinha/backend/api/models"
+	"rinha/backend/db"
 	"rinha/backend/utils"
 
 	"github.com/jackc/pgx/v5"
 )
 
-func getResponseFromTransactionQueryRow(row pgx.Row) (int64, int64, error) {
+func getResponseFromTransactionQueryRow(rows pgx.Rows) (int64, int64, error) {
 	var newValue int64
 	var currentLimit int64
 	var haveError bool
 	var msg string
 
-	err := row.Scan(&newValue, &currentLimit, &haveError, &msg)
+	err := rows.Scan(&newValue, &currentLimit, &haveError, &msg)
 	if err != nil {
-		queryError := utils.QueryError{Code: utils.DbError,
-			Msg: "Erro interno",
-			Err: err,
-		}
-		return 0, 0, queryError
+		return 0, 0, utils.NewError(utils.DbError, "Error scanning row " + err.Error())
 	}
 
 	if haveError {
-		queryError := utils.QueryError{Code: utils.DbError,
-			Msg: "Limite insuficiente",
-			Err: err,
-		}
-		return newValue, currentLimit, &queryError
+		return newValue, currentLimit, utils.NewError(utils.PaymentError, "Not enought balance")
 	}
 
 	return newValue, currentLimit, nil
 }
 
-func (tr *TransactionRepository) Credit(transaction *models.Transaction) (int64, int64, error) {
+func (tr *TransactionRepository) credit(transaction *models.Transaction) (int64, int64, error) {
 	st := "select * from creditar($1, $2, $3);"
-	row := tr.Conn.QueryRow(context.Background(), st, transaction.IdClient, transaction.Value, transaction.Description)
-	return getResponseFromTransactionQueryRow(row)
+	rows, err := db.ExecuteQuery(tr.DbPool, st, transaction.IdClient, transaction.Value, transaction.Description)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer rows.Close()
+	return getResponseFromTransactionQueryRow(rows)
 }
 
-func (tr *TransactionRepository) Debit(transaction *models.Transaction) (int64, int64, error) {
+func (tr *TransactionRepository) debit(transaction *models.Transaction) (int64, int64, error) {
 	st := "select * from debitar($1, $2, $3);"
-	row := tr.Conn.QueryRow(context.Background(), st, transaction.IdClient, transaction.Value, transaction.Description)
-	return getResponseFromTransactionQueryRow(row)
+	rows, err := db.ExecuteQuery(tr.DbPool, st, transaction.IdClient, transaction.Value, transaction.Description)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer rows.Close()
+	return getResponseFromTransactionQueryRow(rows)
 }
 
-func (tr *TransactionRepository) GetLast(idClient int, limit int) ([]models.Transaction, error) {
+func (tr *TransactionRepository) GetLast(idClient uint32, limit int) ([]models.Transaction, error) {
+	transactions := make([]models.Transaction, 0, limit)
 	st := "select * from transacoes where cliente_id = $1 order by realizada_em desc limit $2"
-	rows, err := tr.Conn.Query(context.Background(), st, idClient, limit)
+	rows, err := db.ExecuteQuery(tr.DbPool, st, idClient, limit)
 
-	transactions := make([]models.Transaction, 0, 10)
+	if err != nil {
+		if utils.VerifyErrorCode(err) == utils.EmptyResultError {
+			return transactions, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
 
 	for rows.Next() {
 		transaction := models.Transaction{}
 		err = rows.Scan(&transaction.Id, &transaction.IdClient, &transaction.Value, &transaction.Type, &transaction.Description, &transaction.CreatedAt)
 		if err != nil {
-			fmt.Println("Error while parsing row")
-			return transactions, err
+			return transactions, utils.NewError(utils.DbError, "Error while parsing row: " + err.Error())
 		}
 		transactions = append(transactions, transaction)
 	}
 	return transactions, nil
+}
+
+func (tr *TransactionRepository) ExecuteTransaction(transaction *models.Transaction) (int64, int64, error) {
+	switch transaction.Type[0] {
+	case 'c':
+		return tr.credit(transaction)
+	case 'd':
+		return tr.debit(transaction)
+	default:
+		return 0, 0, utils.NewError(utils.ValidationError, "Unsuported transaction")
+	}
 }

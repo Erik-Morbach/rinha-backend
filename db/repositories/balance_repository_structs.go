@@ -1,18 +1,18 @@
 package repositories
 
 import (
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"rinha/backend/api/models"
 )
 
 type BalanceRepositoryInterface interface {
-	FindByClient(int) (*models.Balance, error)
+	FindByClient(uint32) (*models.Balance, error)
 }
 
 type BalanceRepository struct {
-	Conn *pgx.Conn
+	DbPool *pgxpool.Pool
 }
 
-func NewBalanceRepository(conn *pgx.Conn) *BalanceRepository {
-	return &BalanceRepository{Conn: conn}
+func NewBalanceRepository(dbPool *pgxpool.Pool) *BalanceRepository {
+	return &BalanceRepository{DbPool: dbPool}
 }

@@ -1,66 +1,78 @@
 package handlers
 
 import (
+	"math"
 	"net/http"
-	"strconv"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
 
 	"rinha/backend/api/models"
 	"rinha/backend/utils"
 )
 
-func (th *TransactionHandler) PostTransaction(ctx *gin.Context) {
-	stamp := time.Now()
-	parsedValue, err := strconv.ParseInt(ctx.Param("id"), 10, 32)
-
-	if err != nil {
-		ctx.String(http.StatusBadRequest, "Error")
-		return
-	}
-
-	var clientId uint32 = uint32(parsedValue)
-
+func getTransactionFromRequest(ctx *fiber.Ctx, clientId uint32) (*models.Transaction, error) {
 	transactionJson := TransactionBody{}
 
-	err = ctx.ShouldBind(&transactionJson)
+	err := ctx.BodyParser(&transactionJson)
 	if err != nil {
-		ctx.String(422, "Error")
-		return
+		return nil, utils.NewError(utils.RequestError, "json cannot be decoded"+err.Error())
 	}
-	transactionJson.Id = clientId
 
-	transaction := models.Transaction{
+	// This should be done in an validation layer
+	if len(transactionJson.Description) > 10 || len(transactionJson.Description) == 0 {
+		return nil, utils.NewError(utils.ValidationError, "Description too long")
+	}
+	if transactionJson.Value != math.Floor(transactionJson.Value) {
+		return nil, utils.NewError(utils.ValidationError, "Value is float")
+	}
+
+	intValue := int64(math.Floor(transactionJson.Value))
+
+	return &models.Transaction{
 		Id:          0,
-		IdClient:    transactionJson.Id,
-		Value:       transactionJson.Value,
+		IdClient:    clientId,
+		Value:       intValue,
 		Type:        transactionJson.Type,
 		Description: transactionJson.Description,
-		CreatedAt:   stamp,
+		CreatedAt:   time.Now(),
+	}, nil
+}
+
+func (th *TransactionHandler) PostTransaction(ctx *fiber.Ctx) error {
+	responseBody := transactionResponse{Limit: 0, Balance: 0}
+
+	clientId, err := GetIdFromRequest(ctx)
+	if err != nil {
+		ctx.Locals("body", responseBody)
+		return utils.NewError(utils.ValidationError, "Requested Id cannot be converted to an integer")
 	}
 
-	var limit int64
-	var balance int64
-	var unparsedError error
-
-	if transaction.Type[0] == 'c' {
-		balance, limit, unparsedError = th.TransactionRepository.Credit(&transaction)
-	} else if transaction.Type[0] == 'd' {
-		balance, limit, unparsedError = th.TransactionRepository.Debit(&transaction)
+	exists, err := th.ClientRepository.Exist(clientId)
+	if err != nil {
+		ctx.Locals("body", responseBody)
+		return err
+	}
+	if !exists {
+		ctx.Locals("body", responseBody)
+		return utils.NewError(utils.UserNotFoundError, "User not found")
 	}
 
-	if unparsedError == nil {
-		ctx.JSON(http.StatusOK, transactionResponse{Limit: limit, Balance: balance})
-		return
+	transaction, err := getTransactionFromRequest(ctx, clientId)
+	if err != nil {
+		ctx.Locals("body", responseBody)
+		return err
 	}
 
-	queryError := unparsedError.(*utils.QueryError)
+	balance, limit, err := th.TransactionRepository.ExecuteTransaction(transaction)
 
-	switch queryError.Code {
-	case utils.DbError:
-		ctx.String(404, err.Error())
-	case utils.InsuficientLimitError:
-		ctx.JSON(402, transactionResponse{Limit: limit, Balance: balance})
+	responseBody.Limit = limit
+	responseBody.Balance = balance
+
+	if err != nil {
+		ctx.Locals("body", responseBody)
+		return err
 	}
+
+	return ctx.Status(http.StatusOK).JSON(responseBody)
 }

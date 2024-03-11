@@ -3,16 +3,18 @@ package repositories
 import (
 	"rinha/backend/api/models"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type ClientRepositoryInterface interface {
-	FindById(int) (*models.Client, error)
+	FindById(uint32) (*models.Client, error)
+	Exist(uint32) (bool, error)
 }
 
 type ClientRepository struct {
-	Conn *pgx.Conn
+	DbPool *pgxpool.Pool
 }
-func NewClientRepository(conn *pgx.Conn) *ClientRepository {
-	return &ClientRepository{Conn: conn}
+
+func NewClientRepository(dbPool *pgxpool.Pool) *ClientRepository {
+	return &ClientRepository{DbPool: dbPool}
 }
